@@ -1,0 +1,8 @@
+pydantic
+fastapi
+uvicorn
+pandas
+pandas-ta
+numpy
+numba>=0.63.0
+openenv-core>=0.2.0

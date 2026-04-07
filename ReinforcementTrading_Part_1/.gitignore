@@ -1,0 +1,7 @@
+__pycache__/
+.DS_Store
+venv/
+tensorboard_log/
+checkpoints/
+*.zip
+*.csv

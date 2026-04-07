@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forex-trading-env"
+version = "1.0.0"
+description = "Forex trading environment for OpenEnv"
+authors = [
+  { name="Agent", email="agent@example.com" },
+]
+dependencies = [
+    "pydantic",
+    "numpy",
+    "pandas",
+    "requests",
+    "openai",
+    "openenv-core>=0.2.0"
+]
+
+[project.scripts]
+server = "server.app:main"

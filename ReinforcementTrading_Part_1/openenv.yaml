@@ -1,0 +1,15 @@
+env_name: forex-trading-env
+version: 1.0.0
+description: A real-world Forex trading simulation where agents learn to maximize profit using historical OHLCV and indicator data.
+tasks:
+  - name: first_blood
+    description: (Easy) Make a single profitable trade. Graded 1.0 if a closed trade has a positive profit.
+  - name: consistent_gainer
+    description: (Medium) Finish the episode with at least a 0.5% profit margin overall. Graded fractionally up to 1.0.
+  - name: risk_manager
+    description: (Hard) Achieve at least 1.0% profit while keeping the maximum drawdown below 1.0%. Graded based on risk-adjusted returns.
+tags:
+  - reinforcement-learning
+  - trading
+  - forex
+  - real-world
