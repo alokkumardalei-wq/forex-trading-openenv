@@ -94,6 +94,16 @@ class EnvManager:
 
 env_manager = EnvManager()
 
+MIN_TASK_SCORE = 0.05
+MAX_TASK_SCORE = 0.95
+
+
+def normalize_task_score(score: float) -> float:
+    """Keep task scores strictly inside the open interval (0, 1)."""
+    if not np.isfinite(score):
+        score = 0.0
+    return float(max(MIN_TASK_SCORE, min(MAX_TASK_SCORE, score)))
+
 
 @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False, response_class=HTMLResponse)
 def home():
@@ -307,7 +317,7 @@ def calculate_task_reward(env: ForexTradingEnv, base_reward: float, last_trade_i
                 env.terminated = True
                 reward = 0.0 # keep score in [0, 1]
 
-    return float(max(0.0, min(1.0, reward)))
+    return normalize_task_score(reward)
 
 # --- API Endpoints ---
 

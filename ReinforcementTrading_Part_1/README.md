@@ -38,6 +38,7 @@ This environment contains 3 specific tasks evaluated by deterministic graders:
 3. **`risk_manager` (Hard)**: The agent must achieve > 1.0% overall profit margin while rigorously keeping maximum drawdown below 1.0%.
 
 The task definitions are also stored in `openenv.yaml` at the project root.
+Task scores are intentionally fractional and stay strictly inside `(0, 1)` so the grader can measure partial progress without hitting endpoint values.
 
 ## Local Setup & Usage
 
