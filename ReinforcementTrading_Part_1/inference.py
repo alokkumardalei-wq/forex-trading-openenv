@@ -164,7 +164,7 @@ async def evaluate_task(client: AsyncOpenAI, task: str) -> None:
                     break
 
             success = done and total_score > 0.0
-            final_score = min(max(total_score, 0.0), 1.0)
+            final_score = min(max(total_score, 0.01), 0.99)
             rewards_str = ",".join(f"{reward:.2f}" for reward in rewards_history)
             print(
                 f"[END] success={str(success).lower()} steps={steps_taken} score={final_score:.2f} "
@@ -174,7 +174,7 @@ async def evaluate_task(client: AsyncOpenAI, task: str) -> None:
 
         except Exception as exc:
             logger.debug("Episode failed: %s", exc)
-            final_score = min(max(total_score, 0.0), 1.0)
+            final_score = min(max(total_score, 0.01), 0.99)
             rewards_str = ",".join(f"{reward:.2f}" for reward in rewards_history)
             print(
                 f"[END] success=false steps={steps_taken} score={final_score:.2f} rewards={rewards_str}",

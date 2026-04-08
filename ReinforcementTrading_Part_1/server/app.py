@@ -79,6 +79,7 @@ class EnvManager:
         self.task_name = "first_blood" # Default task
         
         self.max_equity = 10000.0 # Standard start
+        self.previous_grade = 0.0
 
     def initialize_env(self):
         self.env = ForexTradingEnv(
@@ -94,230 +95,54 @@ class EnvManager:
 
 env_manager = EnvManager()
 
-MIN_TASK_SCORE = 0.05
-MAX_TASK_SCORE = 0.95
-
-
-def normalize_task_score(score: float) -> float:
-    """Keep task scores strictly inside the open interval (0, 1)."""
-    if not np.isfinite(score):
-        score = 0.0
-    return float(max(MIN_TASK_SCORE, min(MAX_TASK_SCORE, score)))
-
-
-@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False, response_class=HTMLResponse)
-def home():
-    return """
-    <!doctype html>
-    <html lang="en">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>ForexTrading OpenEnv</title>
-        <style>
-          :root {
-            color-scheme: dark;
-            --bg: #0b1220;
-            --card: #121a2b;
-            --text: #e6edf7;
-            --muted: #99a7bd;
-            --accent: #7ee0a8;
-            --line: rgba(255, 255, 255, 0.08);
-          }
-          html, body {
-            margin: 0;
-            min-height: 100%;
-            background:
-              radial-gradient(circle at top left, rgba(126, 224, 168, 0.16), transparent 28%),
-              radial-gradient(circle at top right, rgba(104, 171, 255, 0.10), transparent 22%),
-              var(--bg);
-            color: var(--text);
-            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          }
-          .wrap {
-            max-width: 880px;
-            margin: 0 auto;
-            padding: 72px 24px;
-          }
-          .badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid var(--line);
-            border-radius: 999px;
-            padding: 8px 14px;
-            font-size: 14px;
-            color: var(--muted);
-            background: rgba(255, 255, 255, 0.03);
-          }
-          .dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--accent);
-            box-shadow: 0 0 0 6px rgba(126, 224, 168, 0.12);
-          }
-          h1 {
-            margin: 22px 0 12px;
-            font-size: clamp(38px, 6vw, 72px);
-            line-height: 0.98;
-            letter-spacing: -0.05em;
-          }
-          p {
-            max-width: 760px;
-            font-size: 18px;
-            line-height: 1.7;
-            color: var(--muted);
-            margin: 0 0 28px;
-          }
-          .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
-            margin-top: 28px;
-          }
-          .card {
-            background: rgba(18, 26, 43, 0.88);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 18px 18px 16px;
-            backdrop-filter: blur(10px);
-          }
-          .card h2 {
-            margin: 0 0 10px;
-            font-size: 15px;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: #b7c4d9;
-          }
-          .card code {
-            display: block;
-            margin: 0 0 8px;
-            color: #f2f7ff;
-            font-size: 14px;
-            word-break: break-word;
-          }
-          .card span {
-            color: var(--muted);
-            font-size: 14px;
-            line-height: 1.55;
-          }
-          a {
-            color: var(--accent);
-            text-decoration: none;
-          }
-          a:hover {
-            text-decoration: underline;
-          }
-        </style>
-      </head>
-      <body>
-        <main class="wrap">
-          <div class="badge"><span class="dot"></span> OpenEnv service running</div>
-          <h1>ForexTrading OpenEnv</h1>
-          <p>
-            A real-world forex trading benchmark with three graded tasks,
-            deterministic fallbacks for local validation, and a FastAPI/OpenEnv
-            interface ready for evaluation.
-          </p>
-          <div class="grid">
-            <section class="card">
-              <h2>Start an episode</h2>
-              <code>POST /reset</code>
-              <span>Resets the environment and returns the initial observation.</span>
-            </section>
-            <section class="card">
-              <h2>Take a step</h2>
-              <code>POST /step</code>
-              <span>Submit one of the four discrete actions: hold, buy, sell, or close.</span>
-            </section>
-            <section class="card">
-              <h2>Inspect state</h2>
-              <code>GET /state</code>
-              <span>View the current episode id, step count, and cumulative reward.</span>
-            </section>
-            <section class="card">
-              <h2>Docs</h2>
-              <code><a href="/docs">/docs</a></code>
-              <span>Open the auto-generated API docs to explore the request and response models.</span>
-            </section>
-          </div>
-        </main>
-      </body>
-    </html>
-    """
-
-def convert_obs(raw_obs, env: ForexTradingEnv) -> Observation:
-    # `raw_obs` is a flatten array. The last step in raw_obs is the current step's features.
-    # To keep it simple, we extract properties directly from the `env` state.
-    
-    features_dict = {}
-    if env.feature_columns:
-        # Get the latest row of features
-        latest_features = env.df.iloc[env.current_step][env.feature_columns]
-        features_dict = latest_features.to_dict()
-    
-    trade_type = "NONE"
-    if env.position != 0:
-        trade_type = "BUY" if env.position == 1 else "SELL"
-        
-    return Observation(
-        features=features_dict,
-        current_equity=float(env.equity_usd),
-        open_trade=trade_type,
-        unrealized_pnl=float(env._compute_unrealized_pips())
-    )
-
-def calculate_task_reward(env: ForexTradingEnv, base_reward: float, last_trade_info: dict, done: bool, task: str) -> float:
-    """ Applies task-specific routing for rewards and grading """
+def get_current_grade(env: ForexTradingEnv, task: str) -> float:
     profit_pct = (env.equity_usd - env.initial_equity_usd) / env.initial_equity_usd
     max_eq = max(env.equity_curve) if env.equity_curve else env.initial_equity_usd
     drawdown = (max_eq - env.equity_usd) / max_eq
-    
-    reward = 0.0
-    
-    if task == "first_blood":
-        # Task 1: Complete one profitable trade
-        if last_trade_info and last_trade_info.get("event") == "CLOSE":
-            if last_trade_info.get("net_pips", 0.0) > 0:
-                reward = 1.0
-                env.terminated = True # Finish immediately once achieved
-    
-    elif task == "consistent_gainer":
-        # Task 2: Achieve > 0.5% profit
-        if done:
-            # Grade up to 1.0
-            if profit_pct > 0.005:
-                reward = 1.0
-            elif profit_pct > 0:
-                reward = profit_pct / 0.005
-            else:
-                reward = 0.0
-        else:
-            # Minor shaping reward for closed profitable trades
-            if last_trade_info and last_trade_info.get("net_pips", 0.0) > 0:
-                reward = 0.1
-                
-    elif task == "risk_manager":
-        # Task 3: Value profit, heavily penalize drawdown
-        if done:
-            if drawdown > 0.01:
-                reward = 0.0 # Failed drawdown limit
-            else:
-                # Target > 1.0% profit
-                if profit_pct > 0.01:
-                    reward = 1.0
-                elif profit_pct > 0:
-                    reward = profit_pct / 0.01
-                else:
-                    reward = 0.0
-        else:
-            if drawdown > 0.01:
-                # Instantly end episode if drawdown exceeds 1%
-                env.terminated = True
-                reward = 0.0 # keep score in [0, 1]
 
-    return normalize_task_score(reward)
+    if task == "first_blood":
+        # Any closed profitable trade terminates and succeeds
+        if profit_pct > 0:
+            return 1.0
+        return 0.0
+
+    elif task == "consistent_gainer":
+        # Partial progress up to 0.5% profit
+        if profit_pct > 0:
+            return min(1.0, profit_pct / 0.005)
+        return 0.0
+
+    elif task == "risk_manager":
+        # Requires drawdown < 1.0%, partial progress up to 1.0% profit
+        if drawdown > 0.01:
+            env.terminated = True
+            return 0.0
+        if profit_pct > 0:
+            return min(1.0, profit_pct / 0.01)
+        return 0.0
+    return 0.0
+
+def calculate_step_reward(env: ForexTradingEnv, base_reward: float, last_trade_info: dict, done: bool, task: str) -> float:
+    """ Computes step reward as the differential of the clamped current grade. """
+    # first_blood termination logic
+    if task == "first_blood" and last_trade_info and last_trade_info.get("event") == "CLOSE":
+        if last_trade_info.get("net_pips", 0.0) > 0:
+            env.terminated = True
+            
+    # Risk manager termination logic
+    max_eq = max(env.equity_curve) if env.equity_curve else env.initial_equity_usd
+    drawdown = (max_eq - env.equity_usd) / max_eq
+    if task == "risk_manager" and drawdown > 0.01:
+        env.terminated = True
+
+    grade = get_current_grade(env, task)
+    
+    # Strictly inside (0, 1), e.g., [0.01, 0.99]
+    clamped_grade = max(0.01, min(0.99, grade))
+    
+    step_reward = clamped_grade - env_manager.previous_grade
+    env_manager.previous_grade = clamped_grade
+    return float(step_reward)
 
 # --- API Endpoints ---
 
@@ -339,6 +164,7 @@ def reset(req: ResetRequest = None):
     
     raw_obs = env_manager.env.reset()
     env_manager.max_equity = env_manager.env.equity_usd
+    env_manager.previous_grade = 0.0
     
     return convert_obs(raw_obs, env_manager.env)
 
@@ -369,7 +195,7 @@ def step(action: Action):
     
     # Calculate specialized task reward
     last_trade = info.get("last_trade_info") or {}
-    task_reward = calculate_task_reward(env_manager.env, base_reward, last_trade, done, env_manager.task_name)
+    task_reward = calculate_step_reward(env_manager.env, base_reward, last_trade, done, env_manager.task_name)
     
     env_manager.total_reward += task_reward
     
