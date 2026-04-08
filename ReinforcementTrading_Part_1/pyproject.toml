@@ -11,10 +11,14 @@ authors = [
 ]
 dependencies = [
     "pydantic",
+    "fastapi",
+    "uvicorn",
     "numpy",
     "pandas",
+    "gymnasium",
     "requests",
     "openai",
+    "httpx",
     "openenv-core>=0.2.0"
 ]
 

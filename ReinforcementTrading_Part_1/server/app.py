@@ -2,6 +2,7 @@ import random
 from typing import List, Optional, Any, Dict
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 
 import numpy as np
 import pandas as pd
@@ -59,16 +60,12 @@ class EnvManager:
             # Use smaller dataset to fit within memory/time limits for the competition
             self.df = self.df.iloc[:2000].copy()
         except Exception as e:
-            # Create dummy if file doesn't exist
-            dates = pd.date_range("2020-01-01", periods=100, freq="1h")
-            self.df = pd.DataFrame({
-                "Open": np.random.randn(100) + 1.1,
-                "High": np.random.randn(100) + 1.1,
-                "Low": np.random.randn(100) + 1.1,
-                "Close": np.random.randn(100) + 1.1,
-                "Volume": np.random.randn(100) * 100,
-            }, index=dates)
-            self.feature_cols = []
+            # Deterministic fallback so the service still boots if the source
+            # market file cannot be loaded.
+            self.df, self.feature_cols = load_and_preprocess_data(
+                "__synthetic_fallback__.csv"
+            )
+            self.df = self.df.iloc[:2000].copy()
             
         self.sl_opts = [10, 20, 30]
         self.tp_opts = [10, 20, 30]
@@ -96,6 +93,149 @@ class EnvManager:
         )
 
 env_manager = EnvManager()
+
+
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False, response_class=HTMLResponse)
+def home():
+    return """
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>ForexTrading OpenEnv</title>
+        <style>
+          :root {
+            color-scheme: dark;
+            --bg: #0b1220;
+            --card: #121a2b;
+            --text: #e6edf7;
+            --muted: #99a7bd;
+            --accent: #7ee0a8;
+            --line: rgba(255, 255, 255, 0.08);
+          }
+          html, body {
+            margin: 0;
+            min-height: 100%;
+            background:
+              radial-gradient(circle at top left, rgba(126, 224, 168, 0.16), transparent 28%),
+              radial-gradient(circle at top right, rgba(104, 171, 255, 0.10), transparent 22%),
+              var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }
+          .wrap {
+            max-width: 880px;
+            margin: 0 auto;
+            padding: 72px 24px;
+          }
+          .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-size: 14px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.03);
+          }
+          .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 0 6px rgba(126, 224, 168, 0.12);
+          }
+          h1 {
+            margin: 22px 0 12px;
+            font-size: clamp(38px, 6vw, 72px);
+            line-height: 0.98;
+            letter-spacing: -0.05em;
+          }
+          p {
+            max-width: 760px;
+            font-size: 18px;
+            line-height: 1.7;
+            color: var(--muted);
+            margin: 0 0 28px;
+          }
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 28px;
+          }
+          .card {
+            background: rgba(18, 26, 43, 0.88);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px 18px 16px;
+            backdrop-filter: blur(10px);
+          }
+          .card h2 {
+            margin: 0 0 10px;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #b7c4d9;
+          }
+          .card code {
+            display: block;
+            margin: 0 0 8px;
+            color: #f2f7ff;
+            font-size: 14px;
+            word-break: break-word;
+          }
+          .card span {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.55;
+          }
+          a {
+            color: var(--accent);
+            text-decoration: none;
+          }
+          a:hover {
+            text-decoration: underline;
+          }
+        </style>
+      </head>
+      <body>
+        <main class="wrap">
+          <div class="badge"><span class="dot"></span> OpenEnv service running</div>
+          <h1>ForexTrading OpenEnv</h1>
+          <p>
+            A real-world forex trading benchmark with three graded tasks,
+            deterministic fallbacks for local validation, and a FastAPI/OpenEnv
+            interface ready for evaluation.
+          </p>
+          <div class="grid">
+            <section class="card">
+              <h2>Start an episode</h2>
+              <code>POST /reset</code>
+              <span>Resets the environment and returns the initial observation.</span>
+            </section>
+            <section class="card">
+              <h2>Take a step</h2>
+              <code>POST /step</code>
+              <span>Submit one of the four discrete actions: hold, buy, sell, or close.</span>
+            </section>
+            <section class="card">
+              <h2>Inspect state</h2>
+              <code>GET /state</code>
+              <span>View the current episode id, step count, and cumulative reward.</span>
+            </section>
+            <section class="card">
+              <h2>Docs</h2>
+              <code><a href="/docs">/docs</a></code>
+              <span>Open the auto-generated API docs to explore the request and response models.</span>
+            </section>
+          </div>
+        </main>
+      </body>
+    </html>
+    """
 
 def convert_obs(raw_obs, env: ForexTradingEnv) -> Observation:
     # `raw_obs` is a flatten array. The last step in raw_obs is the current step's features.
@@ -159,13 +299,15 @@ def calculate_task_reward(env: ForexTradingEnv, base_reward: float, last_trade_i
                     reward = 1.0
                 elif profit_pct > 0:
                     reward = profit_pct / 0.01
+                else:
+                    reward = 0.0
         else:
             if drawdown > 0.01:
                 # Instantly end episode if drawdown exceeds 1%
                 env.terminated = True
-                reward = -1.0 # penalty
-    
-    return float(reward)
+                reward = 0.0 # keep score in [0, 1]
+
+    return float(max(0.0, min(1.0, reward)))
 
 # --- API Endpoints ---
 
@@ -255,7 +397,7 @@ def state():
 
 def main():
     import uvicorn
-    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=True)
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
 
 if __name__ == "__main__":
     main()

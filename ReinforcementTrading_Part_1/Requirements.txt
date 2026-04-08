@@ -2,7 +2,8 @@ pydantic
 fastapi
 uvicorn
 pandas
-pandas-ta
 numpy
-numba>=0.63.0
+gymnasium
 openenv-core>=0.2.0
+openai
+httpx

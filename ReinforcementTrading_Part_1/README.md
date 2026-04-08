@@ -1,3 +1,9 @@
+---
+title: Forex Trading OpenEnv
+sdk: docker
+app_port: 7860
+---
+
 # ForexTrading OpenEnv Environment
 
 This is a real-world task environment simulating Forex Trading for AI agents. It complies strictly with the OpenEnv specification and is packaged for simple deployment on Hugging Face Spaces.
@@ -34,6 +40,10 @@ docker build -t forex-env .
 docker run -p 7860:7860 forex-env
 ```
 
+If the external market CSV is not present, the environment falls back to a
+deterministic synthetic EUR/USD-like dataset so the repository can run
+out-of-the-box for local validation.
+
 ### Running the Inference Script
 
 Ensure the environment requires API access variables:
@@ -41,11 +51,21 @@ Ensure the environment requires API access variables:
 ```bash
 export API_BASE_URL="https://router.huggingface.co/v1"
 export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-export HF_TOKEN="your_hf_or_openai_token_here"
+export HF_TOKEN="your_hugging_face_token_here"
 ```
 
-Execute the validation script:
+Execute the inference script:
 
 ```bash
 python inference.py
 ```
+
+By default, `inference.py` evaluates the `first_blood` task.
+To run a different task locally, set `TASK_NAME` before launching:
+
+```bash
+export TASK_NAME="consistent_gainer"
+python inference.py
+```
+
+To run all three tasks in one local session, set `RUN_ALL_TASKS=1`.

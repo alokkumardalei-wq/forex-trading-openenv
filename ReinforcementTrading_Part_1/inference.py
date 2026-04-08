@@ -1,30 +1,41 @@
-import os
-import sys
-import json
-import httpx
-import logging
 import asyncio
-from openai import AsyncOpenAI
-import traceback
+import json
+import logging
+import os
+import re
+from typing import Any, Dict, List, Optional
 
-logging.basicConfig(level=logging.DEBUG, format='[DEBUG] %(message)s')
+import httpx
+from openai import AsyncOpenAI
+
+logging.basicConfig(level=logging.DEBUG, format="[DEBUG] %(message)s")
 logger = logging.getLogger(__name__)
 
-# Target API config
+# Required submission variables.
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-DEBUG_FALLBACK = "0"
+HF_TOKEN = os.getenv("HF_TOKEN")
 
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
-if not API_KEY:
-    logger.debug("No API Key found in environment variables (HF_TOKEN or OPENAI_API_KEY).")
+# Optional helpers for local or alternate launch flows.
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
+BENCHMARK = os.getenv("BENCHMARK", "forex_trading")
+TASK_NAME = os.getenv("TASK_NAME", "first_blood")
+RUN_ALL_TASKS = os.getenv("RUN_ALL_TASKS", "0").lower() in {"1", "true", "yes"}
+BASE_URL = os.getenv("BASE_URL", "http://localhost:7860")
+MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
 
-MAX_STEPS = 50
-PORT = 7860
-BASE_URL = f"http://localhost:{PORT}"
+DEFAULT_ACTION = "0"
+TASK_SEQUENCE = ["first_blood", "consistent_gainer", "risk_manager"]
+
+
+def compact_text(value: Optional[str]) -> str:
+    if not value:
+        return "null"
+    return str(value).replace("\n", " ").replace("\r", " ")
+
 
 def format_system_prompt() -> str:
-    return """You are a highly skilled Forex trading agent operating in a strictly controlled environment. 
+    return """You are a highly skilled Forex trading agent operating in a strictly controlled environment.
 Your objective is to maximize profit acting in a simulated market based on historical data points.
 You must output ONLY an integer corresponding to your chosen action space:
 0: HOLD (Do nothing)
@@ -34,131 +45,153 @@ You must output ONLY an integer corresponding to your chosen action space:
 
 Return JUST the integer. Nothing else."""
 
-def format_user_prompt(step: int, obs: dict, last_reward: float, history: list) -> str:
+
+def format_user_prompt(step: int, obs: Dict[str, Any], last_reward: float, history: List[Dict[str, Any]]) -> str:
     msg = f"Step {step}:\n"
     msg += f"Observation: {json.dumps(obs, indent=2)}\n"
-    msg += f"Last Reward: {last_reward}\n\n"
-    msg += "What is your action (0, 1, 2, or 3)?"
+    msg += f"Last Reward: {last_reward}\n"
+    if history:
+        msg += "Previous steps:\n"
+        for item in history[-4:]:
+            msg += f"- step={item['step']} action={item['action']} reward={item['reward']:.2f}\n"
+    msg += "\nWhat is your action (0, 1, 2, or 3)?"
     return msg
 
-async def get_model_action(client: AsyncOpenAI, step: int, obs: dict, last_reward: float, history: list) -> str:
+
+def extract_action(text: str) -> str:
+    text = (text or "").strip()
+    if text in {"0", "1", "2", "3"}:
+        return text
+
+    match = re.search(r"\b([0-3])\b", text)
+    if match:
+        return match.group(1)
+
+    logger.debug("Warning: Model gave non-standard output %r. Defaulting to 0.", text)
+    return DEFAULT_ACTION
+
+
+async def get_model_action(
+    client: AsyncOpenAI,
+    step: int,
+    obs: Dict[str, Any],
+    last_reward: float,
+    history: List[Dict[str, Any]],
+) -> str:
+    if not HF_TOKEN:
+        logger.debug("No API key found in environment variables (HF_TOKEN).")
+        return DEFAULT_ACTION
+
     try:
-        if not API_KEY:
-            raise ValueError("No API Key provided")
-            
-        sys_prompt = format_system_prompt()
-        user_prompt = format_user_prompt(step, obs, last_reward, history)
-        
         response = await client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": format_system_prompt()},
+                {"role": "user", "content": format_user_prompt(step, obs, last_reward, history)},
             ],
             temperature=0.1,
             max_tokens=10,
         )
-        content = response.choices[0].message.content.strip()
-        # Fallback parsing
-        if content in ["0", "1", "2", "3"]:
-            return content
-        else:
-            logger.debug(f"Warning: Model gave non-standard output '{content}'. Defaulting to '0'.")
-            return "0"
-            
-    except Exception as e:
-        logger.debug(f"Model request failed: {e}")
-        return DEBUG_FALLBACK
+        content = response.choices[0].message.content or ""
+        return extract_action(content)
+    except Exception as exc:
+        logger.debug("Model request failed: %s", exc)
+        return DEFAULT_ACTION
 
-async def evaluate_task(client: AsyncOpenAI, task: str):
-    print(f"[START] task={task} env=forex_trading model={MODEL_NAME}", flush=True)
-    
+
+async def evaluate_task(client: AsyncOpenAI, task: str) -> None:
+    print(f"[START] task={task} env={BENCHMARK} model={MODEL_NAME}", flush=True)
+
     steps_taken = 0
+    rewards_history: List[float] = []
     total_score = 0.0
-    rewards_history = []
-    
+    success = False
+    history: List[Dict[str, Any]] = []
+
     async with httpx.AsyncClient(timeout=30.0) as http:
+        obs: Dict[str, Any] = {}
+        last_reward = 0.0
+        done = False
+
         try:
-            # 1. Reset
             reset_payload = {"task": task, "episode_id": "eval_1"}
             resp = await http.post(f"{BASE_URL}/reset", json=reset_payload)
             if resp.status_code != 200:
-                logger.debug(f"Reset failed: {resp.text}")
-                print(f"[END] success=false steps=0 score=0.000 rewards=", flush=True)
+                logger.debug("Reset failed: %s", resp.text)
+                print("[END] success=false steps=0 score=0.00 rewards=", flush=True)
                 return
-                
+
             obs = resp.json()
-            
-            last_reward = 0.0
-            done = False
-            reward = 0.0
-            history = []
-            
+
             for step in range(1, MAX_STEPS + 1):
-                # 2. Get action
                 action_str = await get_model_action(client, step, obs, last_reward, history)
                 action_int = int(action_str)
-                
-                # 3. Step environment
-                step_payload = {"action": action_int}
+
+                step_error: Optional[str] = None
                 try:
-                    s_resp = await http.post(f"{BASE_URL}/step", json=step_payload)
+                    s_resp = await http.post(f"{BASE_URL}/step", json={"action": action_int})
                     s_resp.raise_for_status()
                     data = s_resp.json()
-                except Exception as step_e:
-                    logger.debug(f"Step request failed: {step_e}")
-                    raise step_e
-                
-                obs = data.get("observation", {})
+                except Exception as step_exc:
+                    step_error = str(step_exc)
+                    print(
+                        f"[STEP] step={step} action={action_str} reward=0.00 done=false error={compact_text(step_error)}",
+                        flush=True,
+                    )
+                    steps_taken = step
+                    break
+
+                obs = data.get("observation", obs)
                 reward = float(data.get("reward", 0.0))
                 done = bool(data.get("done", False))
-                
-                last_reward = reward
-                rewards_history.append(f"{reward:.2f}")
+
+                info = data.get("info") or {}
+                step_error = info.get("last_action_error") or data.get("error")
+
+                rewards_history.append(reward)
                 total_score += reward
-                steps_taken += 1
-                
-                # Update history
+                steps_taken = step
+                last_reward = reward
                 history.append({"step": step, "action": action_int, "reward": reward})
-                
-                # Emit step log
-                print(f"[STEP] step={step} action={action_int} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
-                
+
+                print(
+                    f"[STEP] step={step} action={action_str} reward={reward:.2f} done={str(done).lower()} "
+                    f"error={compact_text(step_error)}",
+                    flush=True,
+                )
+
                 if done:
                     break
-                    
-            # Completed loop
-            # Calculate final normalized score bounding between 0, 1
-            if total_score < 0:
-                final_score = 0.0
-            elif total_score > 1.0:
-                final_score = 1.0
-            else:
-                final_score = total_score
-                
-            success = done and (final_score > 0.0)
-            rewards_str = ",".join(rewards_history)
-            print(f"[END] success={str(success).lower()} steps={steps_taken} score={final_score:.3f} rewards={rewards_str}", flush=True)
-            
-        except Exception as full_e:
-            rewards_str = ",".join(rewards_history)
-            final_score = total_score
-            success = False
-            print(f"[END] success=false steps={steps_taken} score={final_score:.3f} rewards={rewards_str}", flush=True)
 
-async def main():
-    # If no API key is set, the wrapper will fail but the script bounds fallback to 0
-    dummy_key = API_KEY if API_KEY else "dummy_string"
-    
+            success = done and total_score > 0.0
+            final_score = min(max(total_score, 0.0), 1.0)
+            rewards_str = ",".join(f"{reward:.2f}" for reward in rewards_history)
+            print(
+                f"[END] success={str(success).lower()} steps={steps_taken} score={final_score:.2f} "
+                f"rewards={rewards_str}",
+                flush=True,
+            )
+
+        except Exception as exc:
+            logger.debug("Episode failed: %s", exc)
+            final_score = min(max(total_score, 0.0), 1.0)
+            rewards_str = ",".join(f"{reward:.2f}" for reward in rewards_history)
+            print(
+                f"[END] success=false steps={steps_taken} score={final_score:.2f} rewards={rewards_str}",
+                flush=True,
+            )
+
+
+async def main() -> None:
     client = AsyncOpenAI(
         base_url=API_BASE_URL,
-        api_key=dummy_key,
+        api_key=HF_TOKEN or "dummy_string",
     )
-    
-    tasks = ["first_blood", "consistent_gainer", "risk_manager"]
-    
-    for t in tasks:
-        await evaluate_task(client, t)
+
+    tasks = TASK_SEQUENCE if RUN_ALL_TASKS or TASK_NAME.lower() == "all" else [TASK_NAME]
+    for task in tasks:
+        await evaluate_task(client, task)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

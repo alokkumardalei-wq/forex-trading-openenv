@@ -14,6 +14,21 @@ REPO_PATH=$(realpath "$TARGET_DIR")
 PING_URL=${1:-"http://localhost:7860"}
 
 DOCKER_BUILD_TIMEOUT=600
+TIMEOUT_BIN=""
+DOCKER_OUT=""
+OPENENV_OUT=""
+
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+fi
+
+cleanup() {
+  rm -f "${DOCKER_OUT:-}" "${OPENENV_OUT:-}"
+}
+
+trap cleanup EXIT
 
 echo "[$(date +%H:%M:%S)] Repo:     $REPO_PATH"
 echo "[$(date +%H:%M:%S)] Ping URL: $PING_URL"
@@ -45,10 +60,21 @@ else
 fi
 
 DOCKER_OUT=$(mktemp)
-set +e
-timeout $DOCKER_BUILD_TIMEOUT docker build -t openenv-eval-test "$REPO_PATH" > "$DOCKER_OUT" 2>&1
+run_docker_build() {
+  set +e
+  if [ -n "$TIMEOUT_BIN" ]; then
+    "$TIMEOUT_BIN" "$DOCKER_BUILD_TIMEOUT" docker build --progress=plain -t openenv-eval-test "$REPO_PATH" 2>&1 | tee "$DOCKER_OUT"
+  else
+    echo "[$(date +%H:%M:%S)] WARNING -- No timeout command found; running docker build without a timeout."
+    docker build --progress=plain -t openenv-eval-test "$REPO_PATH" 2>&1 | tee "$DOCKER_OUT"
+  fi
+  local build_exit_code=${PIPESTATUS[0]}
+  set -e
+  return "$build_exit_code"
+}
+
+run_docker_build
 DOCKER_EXIT_CODE=$?
-set -e
 
 if [ $DOCKER_EXIT_CODE -eq 0 ]; then
   echo "[$(date +%H:%M:%S)] PASSED -- Docker build succeeded"
@@ -57,17 +83,14 @@ elif [ $DOCKER_EXIT_CODE -eq 124 ]; then
   tail -n 20 "$DOCKER_OUT"
   echo ""
   echo "Validation stopped at Step 2."
-  rm "$DOCKER_OUT"
   exit 1
 else
   echo "[$(date +%H:%M:%S)] FAILED -- Docker build failed (timeout=${DOCKER_BUILD_TIMEOUT}s)"
   cat "$DOCKER_OUT"
   echo ""
   echo "Validation stopped at Step 2. Fix the above before continuing."
-  rm "$DOCKER_OUT"
   exit 1
 fi
-rm "$DOCKER_OUT"
 
 echo "[$(date +%H:%M:%S)] Step 3/3: Running openenv validate ..."
 if ! command -v openenv &> /dev/null; then
@@ -78,8 +101,8 @@ fi
 
 OPENENV_OUT=$(mktemp)
 set +e
-openenv validate "$REPO_PATH" > "$OPENENV_OUT" 2>&1
-OPENENV_EXIT_CODE=$?
+openenv validate "$REPO_PATH" 2>&1 | tee "$OPENENV_OUT"
+OPENENV_EXIT_CODE=${PIPESTATUS[0]}
 set -e
 
 if [ $OPENENV_EXIT_CODE -eq 0 ]; then
@@ -89,10 +112,8 @@ else
   cat "$OPENENV_OUT"
   echo ""
   echo "Validation stopped at Step 3."
-  rm "$OPENENV_OUT"
   exit 1
 fi
-rm "$OPENENV_OUT"
 
 echo ""
 echo "========================================"
