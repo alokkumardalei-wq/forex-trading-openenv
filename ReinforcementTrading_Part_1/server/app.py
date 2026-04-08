@@ -95,6 +95,169 @@ class EnvManager:
 
 env_manager = EnvManager()
 
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False, response_class=HTMLResponse)
+def home():
+    return """
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>ForexTrading OpenEnv</title>
+        <style>
+          :root {
+            color-scheme: dark;
+            --bg: #0b1220;
+            --card: #121a2b;
+            --text: #e6edf7;
+            --muted: #99a7bd;
+            --accent: #7ee0a8;
+            --line: rgba(255, 255, 255, 0.08);
+          }
+          html, body {
+            margin: 0;
+            min-height: 100%;
+            background:
+              radial-gradient(circle at top left, rgba(126, 224, 168, 0.16), transparent 28%),
+              radial-gradient(circle at top right, rgba(104, 171, 255, 0.10), transparent 22%),
+              var(--bg);
+            color: var(--text);
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }
+          .wrap {
+            max-width: 880px;
+            margin: 0 auto;
+            padding: 72px 24px;
+          }
+          .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-size: 14px;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.03);
+          }
+          .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 0 6px rgba(126, 224, 168, 0.12);
+          }
+          h1 {
+            margin: 22px 0 12px;
+            font-size: clamp(38px, 6vw, 72px);
+            line-height: 0.98;
+            letter-spacing: -0.05em;
+          }
+          p {
+            max-width: 760px;
+            font-size: 18px;
+            line-height: 1.7;
+            color: var(--muted);
+            margin: 0 0 28px;
+          }
+          .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 28px;
+          }
+          .card {
+            background: rgba(18, 26, 43, 0.88);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 18px 18px 16px;
+            backdrop-filter: blur(10px);
+          }
+          .card h2 {
+            margin: 0 0 10px;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: #b7c4d9;
+          }
+          .card code {
+            display: block;
+            margin: 0 0 8px;
+            color: #f2f7ff;
+            font-size: 14px;
+            word-break: break-word;
+          }
+          .card span {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.55;
+          }
+          a {
+            color: var(--accent);
+            text-decoration: none;
+          }
+          a:hover {
+            text-decoration: underline;
+          }
+        </style>
+      </head>
+      <body>
+        <main class="wrap">
+          <div class="badge"><span class="dot"></span> OpenEnv service running</div>
+          <h1>ForexTrading OpenEnv</h1>
+          <p>
+            A real-world forex trading benchmark with three graded tasks,
+            deterministic fallbacks for local validation, and a FastAPI/OpenEnv
+            interface ready for evaluation.
+          </p>
+          <div class="grid">
+            <section class="card">
+              <h2>Start an episode</h2>
+              <code>POST /reset</code>
+              <span>Resets the environment and returns the initial observation.</span>
+            </section>
+            <section class="card">
+              <h2>Take a step</h2>
+              <code>POST /step</code>
+              <span>Submit one of the four discrete actions: hold, buy, sell, or close.</span>
+            </section>
+            <section class="card">
+              <h2>Inspect state</h2>
+              <code>GET /state</code>
+              <span>View the current episode id, step count, and cumulative reward.</span>
+            </section>
+            <section class="card">
+              <h2>Docs</h2>
+              <code><a href="/docs">/docs</a></code>
+              <span>Open the auto-generated API docs to explore the request and response models.</span>
+            </section>
+          </div>
+        </main>
+      </body>
+    </html>
+    """
+
+def convert_obs(raw_obs, env: ForexTradingEnv) -> Observation:
+    # `raw_obs` is a flatten array. The last step in raw_obs is the current step's features.
+    # To keep it simple, we extract properties directly from the `env` state.
+    
+    features_dict = {}
+    if env.feature_columns:
+        # Get the latest row of features
+        latest_features = env.df.iloc[env.current_step][env.feature_columns]
+        features_dict = latest_features.to_dict()
+    
+    trade_type = "NONE"
+    if env.position != 0:
+        trade_type = "BUY" if env.position == 1 else "SELL"
+        
+    return Observation(
+        features=features_dict,
+        current_equity=float(env.equity_usd),
+        open_trade=trade_type,
+        unrealized_pnl=float(env._compute_unrealized_pips())
+    )
+
 def get_current_grade(env: ForexTradingEnv, task: str) -> float:
     profit_pct = (env.equity_usd - env.initial_equity_usd) / env.initial_equity_usd
     max_eq = max(env.equity_curve) if env.equity_curve else env.initial_equity_usd
