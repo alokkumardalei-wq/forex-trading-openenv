@@ -1,9 +1,3 @@
----
-title: Forex Trading OpenEnv
-sdk: docker
-app_port: 7860
----
-
 # ForexTrading OpenEnv Environment
 
 This is a real-world task environment simulating Forex Trading for AI agents. It complies strictly with the OpenEnv specification and is packaged for simple deployment on Hugging Face Spaces.
