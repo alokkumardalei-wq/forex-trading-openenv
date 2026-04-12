@@ -1,3 +1,12 @@
+---
+title: Forex Trading OpenEnv
+emoji: 📈
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
 
 # ForexTrading OpenEnv Environment
 
