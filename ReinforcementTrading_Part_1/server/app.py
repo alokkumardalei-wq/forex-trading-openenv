@@ -394,6 +394,52 @@ def state():
         task_name=env_manager.task_name
     )
 
+class GraderRequest(BaseModel):
+    task: str = Field(..., description="Task name: first_blood, consistent_gainer, or risk_manager")
+
+class GraderResponse(BaseModel):
+    task: str
+    score: float = Field(..., description="Current grade for the task (0.0-1.0)")
+    difficulty: str
+    description: str
+
+TASK_META = {
+    "first_blood": {
+        "difficulty": "easy",
+        "description": "Make a single profitable trade.",
+    },
+    "consistent_gainer": {
+        "difficulty": "medium",
+        "description": "Finish the episode with at least 0.5% profit margin.",
+    },
+    "risk_manager": {
+        "difficulty": "hard",
+        "description": "Achieve 1.0% profit while keeping max drawdown below 1.0%.",
+    },
+}
+
+@app.post("/grader", response_model=GraderResponse)
+def grader(req: GraderRequest):
+    if req.task not in TASK_META:
+        raise HTTPException(status_code=400, detail=f"Unknown task: {req.task}. Valid: {list(TASK_META.keys())}")
+    score = 0.0
+    if env_manager.env is not None and not (env_manager.env.terminated or env_manager.env.truncated):
+        score = get_current_grade(env_manager.env, req.task)
+    score = max(0.01, min(0.99, score)) if score > 0 else 0.01
+    meta = TASK_META[req.task]
+    return GraderResponse(task=req.task, score=score, difficulty=meta["difficulty"], description=meta["description"])
+
+@app.get("/grader", response_model=List[GraderResponse])
+def grader_list():
+    results = []
+    for task_name, meta in TASK_META.items():
+        score = 0.0
+        if env_manager.env is not None and not (env_manager.env.terminated or env_manager.env.truncated):
+            score = get_current_grade(env_manager.env, task_name)
+        score = max(0.01, min(0.99, score)) if score > 0 else 0.01
+        results.append(GraderResponse(task=task_name, score=score, difficulty=meta["difficulty"], description=meta["description"]))
+    return results
+
 def main():
     import uvicorn
     uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)

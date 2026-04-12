@@ -3,11 +3,26 @@ version: 1.0.0
 description: A real-world Forex trading simulation where agents learn to maximize profit using historical OHLCV and indicator data.
 tasks:
   - name: first_blood
+    difficulty: easy
     description: (Easy) Make a single profitable trade. Graded fractionally within (0, 1) based on closed-trade profit.
+    grader:
+      type: reward
+      score_range: [0.01, 0.99]
+      description: "Returns 1.0 if any closed trade is profitable, 0.0 otherwise."
   - name: consistent_gainer
+    difficulty: medium
     description: (Medium) Finish the episode with at least a 0.5% profit margin overall. Graded fractionally within (0, 1) based on account growth.
+    grader:
+      type: reward
+      score_range: [0.01, 0.99]
+      description: "Partial credit proportional to profit percentage up to 0.5% target."
   - name: risk_manager
+    difficulty: hard
     description: (Hard) Achieve at least 1.0% profit while keeping the maximum drawdown below 1.0%. Graded fractionally within (0, 1) using profit and drawdown.
+    grader:
+      type: reward
+      score_range: [0.01, 0.99]
+      description: "Partial credit for profit up to 1.0%, score drops to 0.0 if drawdown exceeds 1.0%."
 tags:
   - reinforcement-learning
   - trading
