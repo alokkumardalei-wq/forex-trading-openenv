@@ -20,7 +20,7 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")
 BENCHMARK = os.getenv("BENCHMARK", "forex_trading")
 TASK_NAME = os.getenv("TASK_NAME", "first_blood")
-RUN_ALL_TASKS = os.getenv("RUN_ALL_TASKS", "0").lower() in {"1", "true", "yes"}
+RUN_ALL_TASKS = os.getenv("RUN_ALL_TASKS", "1").lower() in {"1", "true", "yes"}
 BASE_URL = os.getenv("BASE_URL", "http://localhost:7860")
 MAX_STEPS = int(os.getenv("MAX_STEPS", "8"))
 
